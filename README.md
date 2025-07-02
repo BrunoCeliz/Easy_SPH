@@ -14,3 +14,7 @@ We aim to present a flexible and highly optimized SPH code, useful for fast and 
 * "High Performance Computing and Numerical Modelling". Volker Springel within the Saas-Fee Advanced Course 43 of the Swiss Society for Astrophysics and Astronomy ("Star Formation in Galaxy Evolution: Connecting Numerical Models to Reality").
 
 * ...and references therein.
+
+## Warnings:
+
+The GUI part of the code highly relies on Qt5. Particularly, check for `apt install qtbase5-dev qtbase5-dev-tools`.
