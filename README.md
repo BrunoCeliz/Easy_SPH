@@ -29,7 +29,9 @@ We aim to present a flexible and highly optimized SPH code, useful for fast and 
 
 ### Fine-tune your preferred conditions:
 
-* On the file `src/sph.cpp` you will find the initial positions & velocities, viscosity, target density, amount of particles and neighbors to search, total time and time step, kinetic kick and density threshold, size, etc.
+* Inside `src/sph.cpp` you will find the initial positions & velocities, viscosity, target density, amount of particles and neighbors to search, total time and time step, kinetic kick and density threshold, size, etc.
+
+* Control the amount of active OpenMP workers using `OMP_NUM_THREADS=8 ./sph` (we highly encourage to use the amount of physical **cores** rather than the logical processors i.e. **threads**).
 
 ## Warnings:
 
