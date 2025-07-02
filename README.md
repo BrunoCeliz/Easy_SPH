@@ -15,6 +15,26 @@ We aim to present a flexible and highly optimized SPH code, useful for fast and 
 
 * ...and references therein.
 
+## Instructions:
+
+* Clone this repository `git clone https://github.com/BrunoCeliz/Easy_SPH.git`.
+
+* On the folder, create a "build" directory `mkdir build`.
+
+* Go to the recently created directory `cd build` and point to the CMake file `cmake ..`.
+
+* Compile with Make `make`.
+
+* Run and visualise the default example! `./sph`.
+
+### Fine-tune your preferred conditions:
+
+* On the file `src/sph.cpp` you will find the initial positions & velocities, viscosity, target density, amount of particles and neighbors to search, total time and time step, kinetic kick and density threshold, size, etc.
+
 ## Warnings:
 
 The GUI part of the code highly relies on Qt5. Particularly, check for `apt install qtbase5-dev qtbase5-dev-tools`.
+
+### WIP:
+
+Ease the selection of options & parameters. Create a few initial conditions (not only a rotating gas cloud).
