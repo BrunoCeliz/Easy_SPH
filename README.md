@@ -7,6 +7,8 @@ We aim to present a flexible and highly optimized SPH code, useful for fast and 
 
 ![animation](SPH_example.gif)
 
+HD video of gas within a static NFW potential: https://youtu.be/Y3Q0ocbiiz8?si=he6xqb81BSRuvTf3
+
 ## Recommended Reading:
 
 * "Smoothed Particle Hydrodynamics". Monaghan J.J., 1992, ARA&A, 30, 543
