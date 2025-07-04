@@ -45,7 +45,7 @@ To build this project, you will need:
 
 ### Installing Qt5 (Linux Ubuntu/Debian):
 
-* sudo apt install build-essential cmake libqt5opengl5-dev libglu1-mesa-dev libgl1-mesa-dev
+* `sudo apt install build-essential cmake libqt5opengl5-dev libglu1-mesa-dev libgl1-mesa-dev`
 
 * The GUI part of the code highly relies on Qt5. Particularly, check for `apt install qtbase5-dev qtbase5-dev-tools`.
 
