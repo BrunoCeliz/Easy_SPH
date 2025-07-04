@@ -35,8 +35,21 @@ We aim to present a flexible and highly optimized SPH code, useful for fast and 
 
 ## Warnings:
 
-The GUI part of the code highly relies on Qt5. Particularly, check for `apt install qtbase5-dev qtbase5-dev-tools`.
+To build this project, you will need:
+
+* CMake (Version 3.19 or higher, https://cmake.org/download/
+
+* A C++ Compiler (e.g., GCC, Clang, Intel C++ Compiler; Ensure it supports C++11).
+
+* Qt5 Development libraries, including at least `Core`, `Gui`, `OpenGL`, and `Widgets` modules (https://www.qt.io/download)
+
+### Installing Qt5 (Linux Ubuntu/Debian):
+
+* sudo apt install build-essential cmake libqt5opengl5-dev libglu1-mesa-dev libgl1-mesa-dev
+
+* The GUI part of the code highly relies on Qt5. Particularly, check for `apt install qtbase5-dev qtbase5-dev-tools`.
 
 ### WIP:
 
 Ease the selection of options & parameters. Create a few initial conditions (not only a rotating gas cloud).
+

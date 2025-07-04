@@ -61,7 +61,7 @@ SPH::SPH()
    mMaxY = mCellSize * mGridCellsY;
    mMaxZ = mCellSize * mGridCellsZ;
 
-   float time_simu = 1.0f;  // [Myr]
+   float time_simu = 3.0f;  // [Myr]
    mTimeStep = 1e-4f;
    totalSteps = (int)round(time_simu/mTimeStep);
 
