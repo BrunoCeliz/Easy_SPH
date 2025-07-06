@@ -39,9 +39,6 @@ SPH::SPH()
    mRho0(0.0f),
    mStopped(false),
    mPaused(false)
-   //mKineticEnergyTotal(0.0f),
-   //mPotentialEnergyTotal(0.0f),
-   //mAngularMomentumTotal(vec3(0.0f, 0.0f, 0.0f))
 {
    // Grid
    mH = 0.1f;  // OG = 3.34;
@@ -61,14 +58,14 @@ SPH::SPH()
    mMaxY = mCellSize * mGridCellsY;
    mMaxZ = mCellSize * mGridCellsZ;
 
-   float time_simu = 1.0f;  // [Myr]
+   float time_simu = 3.0f;  // [Myr]
    mTimeStep = 1e-4f;
    totalSteps = (int)round(time_simu/mTimeStep);
 
    // Physics
    mGravity = vec3(0.0f, 0.0f, 0.0f);  // Legacy. Only if we want e.g. a "wind" or Earth condition.
-   mViscosityScalar = 1e+3f;  // 1e+1~2 == nice disk formation (!!!)
-   mDamping = 0.001f;  // Deberíamos "tirar" las que se escapen (En vez de checkear boundaries...)
+   mViscosityScalar = 1e+1f;
+   mDamping = 1.0f;  // Deberíamos "tirar" las que se escapen (En vez de checkear boundaries...)
    // Grav (and/or central pot)
    mGravConstant = 4.3009e-3f;  // En pc (km/s)^2 / M_sun
    mCentralMass = 1e+5f;  // As we wish
@@ -83,12 +80,12 @@ SPH::SPH()
    mCflLimit2 = mCflLimit * mCflLimit;
 
    // NEW: EoS
-   mA_fluid = 1e-1f;  // ??? Check S&H03
+   mA_fluid = 1e-1f;  // Check S&H03
    mGamma_minus = 5.f/3.f - 1.f;
    mInvGamma_minus = 1.f/mGamma_minus;
    // Or more stiff:
-   mRho0 = 100.0f;  // Check qué debería ser para el H_1 + He_2 pristino...
-   mStiffness = 0.1f;
+   mRho0 = 1e+1f;
+   mStiffness = 1e-1f;
 
    // Feedback threshold? (& kick)
    mRho_thresh = 1e+4f;
@@ -117,9 +114,14 @@ SPH::SPH()
    mNeighbors = new uint32_t[mParticleCount*mExamineCount];
    mNeighborDistancesScaled = new float[mParticleCount*mExamineCount];
 
-   // randomize particle start positions -> Cambiar por otra config...
-   // initParticlePositionsRandom();
-   initParticlePolitionsSphere();
+   // Randomize particle start positions (rotating)
+   //initRotatingGasCloud();
+
+   // Two non-centered spheres (orbiting a centre)
+   //initTwoSpheres();
+
+   // Something with a bounding box? e.g. splash of water
+   initBlob();
 
    // Maybe add here una opcion para cargar las condiciones de un archivo externo?
 }
@@ -209,9 +211,6 @@ void SPH::step(int this_step)
    timeComputeAcceleration = 0;
    timeIntegrate = 0;
    QElapsedTimer t;
-   //mKineticEnergyTotal = 0.0f;
-   //mPotentialEnergyTotal = 0.0f;
-   //mAngularMomentumTotal = vec3(0.0f, 0.0f, 0.0f);
 
    // put particles into voxel grid
    voxelizeParticles();
@@ -244,17 +243,20 @@ void SPH::step(int this_step)
 
          computeAcceleration(particleIndex, neighbors, neighborDistances);
 
-         // Puedo poner acá el kick de feedback? Mejor afuera (no todos los steps)? (!)
+         // Puedo poner acá el kick de feedback <=> Quiero feedback...
+         /*
          if (this_step % 10 == 0)
          {
             computeFeedback(particleIndex, neighbors, neighborDistances);
          }
+         */
       }
 
       // integrate (after computeAccel for the system)
       #pragma omp for schedule(guided)
       for (int particleIndex = 0; particleIndex < mParticleCount; particleIndex++)
       {
+         // Debería la integración hacerce cargo de aplicar los boundaries?
          integrate(particleIndex);
       }
    }
@@ -289,13 +291,146 @@ void SPH::stopSimulation()
 
 
 // Sobra... -> Cambiar por otras cond inic
-void SPH::initParticlePositionsRandom()
+void SPH::initTwoSpheres()
 {
-   // ...
+   // Fix seed:
+   srand(42);
+
+   // 1st sphere
+   float sphereCenter_x_1 = mMaxX * 0.05f;
+   float sphereCenter_y_1 = mMaxY * 0.05f;
+   float sphereCenter_z_1 = mMaxZ * 0.05f;
+   // 2nd sphere
+   float sphereCenter_x_2 = mMaxX * 0.95f;
+   float sphereCenter_y_2 = mMaxY * 0.95f;
+   float sphereCenter_z_2 = mMaxZ * 0.95f;
+
+   // Vars
+   float dist = 0.0f;
+   float x = 0.0f;
+   float y = 0.0f;
+   float z = 0.0f;
+
+   float radius = 1.0f;  // Each sphere
+   float phi;  // El ang acimutal para la v_tangencial. (atan2(y,x))
+   float v_x_inic, v_y_inic, v_z_inic;  // El hdp puso a y como la comp vertical...
+                              // (no quiero v_inic en "z" (que aca es "y"))
+
+   // 1st sphere
+   for (int i = 0; i < mParticleCount/2; i++)
+   {
+      do
+      {
+         x = rand() / (float)RAND_MAX;
+         y = rand() / (float)RAND_MAX;
+         z = rand() / (float)RAND_MAX;
+
+         x *= mGridCellsX * mHTimes2;
+         y *= mGridCellsY * mHTimes2;
+         z *= mGridCellsZ * mHTimes2;
+
+         if (x == (float)mGridCellsX)
+            x -= 0.00001f;
+         if (y == (float)mGridCellsY)
+            y -= 0.00001f;
+         if (z == (float)mGridCellsZ)
+            z -= 0.00001f;
+
+         //dist = (vec3(x,y,z) - sphereCenter).length();
+         dist = (x - sphereCenter_x_1) * (x - sphereCenter_x_1) +\
+                (y - sphereCenter_y_1) * (y - sphereCenter_y_1) +\
+                (z - sphereCenter_z_1) * (z - sphereCenter_z_1);
+         dist = sqrtf(dist);
+      }
+      while (dist > radius);
+
+      mSrcParticles->mPosition[i * 3] = x;
+      mSrcParticles->mPosition[i * 3 + 1] = y;
+      mSrcParticles->mPosition[i * 3 + 2] = z;
+
+      // Orbital vel parameter
+      phi = atan2(z - mMaxZ * 0.5f, x - mMaxX * 0.5f);  // Acomodar por el centro del box
+      dist = (sphereCenter_x_1 - mMaxZ * 0.5f) * (sphereCenter_x_1 - mMaxZ * 0.5f) +\
+            (sphereCenter_y_1 - mMaxZ * 0.5f) * (sphereCenter_y_1 - mMaxZ * 0.5f) +\
+            (sphereCenter_z_1 - mMaxZ * 0.5f) * (sphereCenter_z_1 - mMaxZ * 0.5f);
+      v_x_inic = 2.0f * sqrtf(dist) * -sin(phi);  // a = 20.0
+      v_z_inic = 2.0f * sqrtf(dist) * cos(phi);  // a = 20.0
+
+      // Random vels =/= rotating, but orbital velocity
+      v_x_inic += ((rand() / (float)RAND_MAX) * 1.f) - 0.5f;
+      v_y_inic = ((rand() / (float)RAND_MAX) * 1.f) - 0.5f;
+      v_z_inic += ((rand() / (float)RAND_MAX) * 1.f) - 0.5f;
+      // Power law w.r.t. to distance to the sphere's centre
+      //v_z_inic = 20.0f * pow(dist + mH*0.5, -0.5) * cos(phi);  // a = 20.0
+
+      //mSrcParticles->mVelocity[i].set(v_x_inic, v_y_inic, v_z_inic);
+      mSrcParticles->mVelocity[i * 3] = v_x_inic;
+      mSrcParticles->mVelocity[i * 3 + 1] = v_y_inic;
+      mSrcParticles->mVelocity[i * 3 + 2] = v_z_inic;
+   }
+
+   // 2nd sphere
+   for (int i = mParticleCount/2; i < mParticleCount; i++)
+   {
+      do
+      {
+         x = rand() / (float)RAND_MAX;
+         y = rand() / (float)RAND_MAX;
+         z = rand() / (float)RAND_MAX;
+
+         x *= mGridCellsX * mHTimes2;
+         y *= mGridCellsY * mHTimes2;
+         z *= mGridCellsZ * mHTimes2;
+
+         if (x == (float)mGridCellsX)
+            x -= 0.00001f;
+         if (y == (float)mGridCellsY)
+            y -= 0.00001f;
+         if (z == (float)mGridCellsZ)
+            z -= 0.00001f;
+
+         //dist = (vec3(x,y,z) - sphereCenter).length();
+         dist = (x - sphereCenter_x_2) * (x - sphereCenter_x_2) +\
+                (y - sphereCenter_y_2) * (y - sphereCenter_y_2) +\
+                (z - sphereCenter_z_2) * (z - sphereCenter_z_2);
+         dist = sqrtf(dist);
+      }
+      while (dist > radius);
+
+      mSrcParticles->mPosition[i * 3] = x;
+      mSrcParticles->mPosition[i * 3 + 1] = y;
+      mSrcParticles->mPosition[i * 3 + 2] = z;
+
+      // Orbital vel parameter
+      phi = atan2(z - mMaxZ * 0.5f, x - mMaxX * 0.5f);  // Acomodar por el centro del box
+      dist = (sphereCenter_x_2 - mMaxZ * 0.5f) * (sphereCenter_x_2 - mMaxZ * 0.5f) +\
+            (sphereCenter_y_2 - mMaxZ * 0.5f) * (sphereCenter_y_2 - mMaxZ * 0.5f) +\
+            (sphereCenter_z_2 - mMaxZ * 0.5f) * (sphereCenter_z_2 - mMaxZ * 0.5f);
+      v_x_inic = 2.0f * sqrtf(dist) * -sin(phi);  // a = 20.0
+      v_z_inic = 2.0f * sqrtf(dist) * cos(phi);  // a = 20.0
+
+      // Random vels =/= rotating, but orbital velocity
+      v_x_inic += ((rand() / (float)RAND_MAX) * 1.f) - 0.5f;
+      v_y_inic = ((rand() / (float)RAND_MAX) * 1.f) - 0.5f;
+      v_z_inic += ((rand() / (float)RAND_MAX) * 1.f) - 0.5f;
+
+      // Power law w.r.t. to distance to the sphere's centre
+      //v_z_inic = 20.0f * pow(dist + mH*0.5, -0.5) * cos(phi);  // a = 20.0
+
+      //mSrcParticles->mVelocity[i].set(v_x_inic, v_y_inic, v_z_inic);
+      mSrcParticles->mVelocity[i * 3] = v_x_inic;
+      mSrcParticles->mVelocity[i * 3 + 1] = v_y_inic;
+      mSrcParticles->mVelocity[i * 3 + 2] = v_z_inic;
+
+      //mSrcParticles->mVelocity[i].set(v_x_inic, v_y_inic, v_z_inic);
+      mSrcParticles->mVelocity[i * 3] = v_x_inic;
+      mSrcParticles->mVelocity[i * 3 + 1] = v_y_inic;
+      mSrcParticles->mVelocity[i * 3 + 2] = v_z_inic;
+   }
 }
 
 
-void SPH::initParticlePolitionsSphere()
+void SPH::initRotatingGasCloud()
 {
    // Fix seed:
    srand(42);
@@ -369,6 +504,72 @@ void SPH::initParticlePolitionsSphere()
       else {
          v_y_inic = -((rand() / (float)RAND_MAX) * 6.5f);
       };
+
+      //mSrcParticles->mVelocity[i].set(v_x_inic, v_y_inic, v_z_inic);
+      mSrcParticles->mVelocity[i * 3] = v_x_inic;
+      mSrcParticles->mVelocity[i * 3 + 1] = v_y_inic;
+      mSrcParticles->mVelocity[i * 3 + 2] = v_z_inic;
+   }
+
+}
+
+
+// Another one, a blob of a fluid with initial velocity, enclosed in a box
+void SPH::initBlob()
+{
+   // Fix seed:
+   srand(42);
+
+   float dist = 0.0f;
+
+   float x = 0.0f;
+   float y = 0.0f;
+   float z = 0.0f;
+
+   float sphereCenter_x = mCellSize; //mMaxX * 0.5f;
+   float sphereCenter_y = mMaxY * 0.5f;
+   float sphereCenter_z = mMaxZ * 0.5f;
+
+   float radius = mCellSize * 3.f;
+
+   float v_x_inic, v_y_inic, v_z_inic;
+
+   for (int i = 0; i < mParticleCount; i++)
+   {
+      do
+      {
+         x = rand() / (float)RAND_MAX;
+         y = rand() / (float)RAND_MAX;
+         z = rand() / (float)RAND_MAX;
+
+         x *= mCellSize; //mGridCellsX * mHTimes2;
+         y *= mGridCellsY * mHTimes2;
+         z *= mGridCellsZ * mHTimes2;
+
+         if (x == (float)mGridCellsX)
+            x -= 0.00001f;
+         if (y == (float)mGridCellsY)
+            y -= 0.00001f;
+         if (z == (float)mGridCellsZ)
+            z -= 0.00001f;
+
+         //dist = (vec3(x,y,z) - sphereCenter).length();
+         dist = (x - sphereCenter_x) * (x - sphereCenter_x) +\
+                (y - sphereCenter_y) * (y - sphereCenter_y) +\
+                (z - sphereCenter_z) * (z - sphereCenter_z);
+         dist = sqrtf(dist);
+      }
+      while (dist > radius);
+
+      mSrcParticles->mPosition[i * 3] = x;
+      mSrcParticles->mPosition[i * 3 + 1] = y;
+      mSrcParticles->mPosition[i * 3 + 2] = z;
+
+      v_x_inic = 50/sqrtf(y * y + z * z + mSoftening);
+      // Random movement in the other directions
+      float factor_vel = 5.f;
+      v_y_inic = ((rand() / (float)RAND_MAX) * factor_vel) - factor_vel*0.5f;
+      v_z_inic = ((rand() / (float)RAND_MAX) * factor_vel) - factor_vel*0.5f;
 
       //mSrcParticles->mVelocity[i].set(v_x_inic, v_y_inic, v_z_inic);
       mSrcParticles->mVelocity[i * 3] = v_x_inic;
@@ -703,6 +904,19 @@ void SPH::computeDensity(int particleIndex, uint32_t* neighbors, float* neighbor
    }
 
    mSrcParticles->mDensity[particleIndex] = density;
+
+   // Random: make some have a thounsanth of the density (!)
+   /*
+   if (particleIndex < M)
+   {
+      mSrcParticles->mDensity[particleIndex] = density;
+   }
+   else
+   {
+      mSrcParticles->mDensity[particleIndex] = density * 1e-3f;
+   }
+   */
+   
 }
 
 // NEW: EoS => Algo relacionado a la energía interna (e.g. check lectures Volker)
@@ -713,12 +927,11 @@ float SPH::computePressure(float rho)
    // P = (gamma - 1) * rho * u_int
    // u_int = A * rho^(gamma - 1) * (gamma - 1)^-1
    // Monoatomic gas => gamma = 5/3; A who knows, free parameter...
-   
-   float therm_int = mA_fluid * powf(rho, mGamma_minus) * mInvGamma_minus;
-   return mGamma_minus * rho * therm_int;
+   //float therm_int = mA_fluid * powf(rho, mGamma_minus) * mInvGamma_minus;
+   //return mGamma_minus * rho * therm_int;
 
    // Option 2: Stiff material:
-   //return (rho - mRho0) * mStiffness;
+   return (rho - mRho0) * mStiffness;
 
 }
 
@@ -744,6 +957,9 @@ float SPH::computeEnclosedMassNFW(float dist)
 
 void SPH::addCentralAccel(float* pos, float* accel)
 {
+   /*
+   <=> Si quiero una accel central
+
    // New vecs (grav):
    float gravityTerm[3];
    float distance_ij3;
@@ -777,6 +993,12 @@ void SPH::addCentralAccel(float* pos, float* accel)
    accel[0] += -mGravConstant * enclosed_mass * gravityTerm[0];
    accel[1] += -mGravConstant * enclosed_mass * gravityTerm[1];
    accel[2] += -mGravConstant * enclosed_mass * gravityTerm[2];
+   */
+
+   // ---------------------------------------------------------
+
+   // Sino, una accel cte: (lo hago a lo bruto acá, sup gravedad unif hacia abajo (Y-axis))
+   accel[1] += -1e+2f;  // Only god knows the correct value for the actual unities
 }
 
 
@@ -962,67 +1184,41 @@ void SPH::computeFeedback(int particleIndex, uint32_t* neighbors, float* neighbo
 
 
 void SPH::integrate(int particleIndex)
-{   
-   // vec3 position = mSrcParticles->mPosition[particleIndex];
+{
+   // LF-KDK: Only gravity:
    float position[3];
    position[0] = mSrcParticles->mPosition[particleIndex * 3];
    position[1] = mSrcParticles->mPosition[particleIndex * 3 + 1];
    position[2] = mSrcParticles->mPosition[particleIndex * 3 + 2];
-   // vec3 velocity = mSrcParticles->mVelocity[particleIndex];
+   
    float velocity[3];
    velocity[0] = mSrcParticles->mVelocity[particleIndex * 3];
    velocity[1] = mSrcParticles->mVelocity[particleIndex * 3 + 1];
    velocity[2] = mSrcParticles->mVelocity[particleIndex * 3 + 2];
-   // vec3 acceleration = mSrcParticles->mAcceleration[particleIndex];
+   
    float acceleration[3];
    acceleration[0] = mSrcParticles->mAcceleration[particleIndex * 3];
    acceleration[1] = mSrcParticles->mAcceleration[particleIndex * 3 + 1];
    acceleration[2] = mSrcParticles->mAcceleration[particleIndex * 3 + 2];
+   //float mass_here = mSrcParticles->mMass[particleIndex];
 
-   float mass_here = mSrcParticles->mMass[particleIndex];
-   float posTimeStep = mTimeStep;  // ??
-
-   // LF-KDK: Only gravity
-
-   //vec3 velocity_halfstep;
    float velocity_halfstep[3];
    velocity_halfstep[0] = velocity[0] + (acceleration[0] * mTimeStep * 0.5f);
    velocity_halfstep[1] = velocity[1] + (acceleration[1] * mTimeStep * 0.5f);
    velocity_halfstep[2] = velocity[2] + (acceleration[2] * mTimeStep * 0.5f);
 
-   //vec3 newPosition = position + (velocity_halfstep * posTimeStep);
    float newPosition[3];
-   newPosition[0] = position[0] + (velocity_halfstep[0] * posTimeStep);
-   newPosition[1] = position[1] + (velocity_halfstep[1] * posTimeStep);
-   newPosition[2] = position[2] + (velocity_halfstep[2] * posTimeStep);
+   newPosition[0] = position[0] + (velocity_halfstep[0] * mTimeStep);
+   newPosition[1] = position[1] + (velocity_halfstep[1] * mTimeStep);
+   newPosition[2] = position[2] + (velocity_halfstep[2] * mTimeStep);
 
-   // copy & paste grav...
-   float rMinusRjScaled[3];
-   rMinusRjScaled[0] = (newPosition[0] - mCentralPos[0]);
-   rMinusRjScaled[1] = (newPosition[1] - mCentralPos[1]);
-   rMinusRjScaled[2] = (newPosition[2] - mCentralPos[2]);
-
-   float dot = rMinusRjScaled[0] * rMinusRjScaled[0] + rMinusRjScaled[1] * rMinusRjScaled[1] +\
-         rMinusRjScaled[2] * rMinusRjScaled[2];
-   dot = sqrtf(dot);
-
-   float distance_ij3;
-   distance_ij3 = (dot + mSoftening) * (dot + mSoftening) * (dot + mSoftening);
-
-   // Updateo la gravedad:
-   // acceleration += gravityTerm;
-   acceleration[0] = -mGravConstant * mCentralMass * (rMinusRjScaled[0]/distance_ij3);
-   acceleration[1] = -mGravConstant * mCentralMass * (rMinusRjScaled[1]/distance_ij3);
-   acceleration[2] = -mGravConstant * mCentralMass * (rMinusRjScaled[2]/distance_ij3);
-
-   //vec3 newVelocity = velocity_halfstep + (acceleration * mTimeStep);
+   // Copy & paste grav -> Tengo la func:
+   addCentralAccel(newPosition, acceleration);
+   
    float newVelocity[3];
    newVelocity[0] = velocity_halfstep[0] + (acceleration[0] * mTimeStep);
    newVelocity[1] = velocity_halfstep[1] + (acceleration[1] * mTimeStep);
    newVelocity[2] = velocity_halfstep[2] + (acceleration[2] * mTimeStep);
-
-   dot = newVelocity[0] * newVelocity[0] + newVelocity[1] * newVelocity[1] +\
-         newVelocity[2] * newVelocity[2];
 
    // Muchos NaNs... Skip them:
    /* if (dot > 0)
@@ -1041,6 +1237,10 @@ void SPH::integrate(int particleIndex)
 
    } */
 
+   // Antes de terminar la integración: Si te pasate del borde -> rebotá
+   updateBoundary(newPosition, newVelocity);
+
+   // Ahora si, actualizá
    mSrcParticles->mPosition[particleIndex * 3] = newPosition[0];
    mSrcParticles->mPosition[particleIndex * 3 + 1] = newPosition[1];
    mSrcParticles->mPosition[particleIndex * 3 + 2] = newPosition[2];
@@ -1050,6 +1250,45 @@ void SPH::integrate(int particleIndex)
    mSrcParticles->mVelocity[particleIndex * 3 + 2] = newVelocity[2];
 }
 
+
+// Try mine, a ver que onda:
+// Check for position. If past the wall -> bounce (reflexion on velocity)
+// Recall que el "piso" es en el eje Y...
+void SPH::updateBoundary(float* pos, float* vel)
+{
+   // X-axis (vel para evitar que reboten inf):
+   if (pos[0] < 0.f && vel[0] < 0.f)
+   {
+      vel[0] *= -mDamping;
+   }
+   else if (pos[0] > mMaxX && vel[0] > 0.f)
+   {
+      vel[0] *= -mDamping;
+   }
+
+   // Y-axis:
+   if (pos[1] < 0.f && vel[1] < 0.f)
+   {
+      vel[1] *= -mDamping;
+   }
+   else if (pos[1] > mMaxY && vel[1] > 0.f)
+   {
+      vel[1] *= -mDamping;
+   }
+
+   // Z-axis:
+   if (pos[2] < 0.f && vel[2] < 0.f)
+   {
+      vel[2] *= -mDamping;
+   }
+   else if (pos[2] > mMaxZ && vel[2] > 0.f)
+   {
+      vel[2] *= -mDamping;
+   }
+}
+
+/*
+Old
 
 void SPH::handleBoundaryConditions(
    vec3 position,
@@ -1175,6 +1414,7 @@ void SPH::applyBoundary(
    *newVelocity = reflection;
    *newPosition = intersection + reflection * (remaining * mDamping);
 }
+*/
 
 
 int SPH::computeVoxelId(int voxelX, int voxelY, int voxelZ)

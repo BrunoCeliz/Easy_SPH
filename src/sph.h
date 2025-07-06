@@ -86,9 +86,9 @@ signals:
 
 protected:
 
-      void initParticlePositionsRandom();
-
-      void initParticlePolitionsSphere();
+      void initTwoSpheres();
+      void initRotatingGasCloud();
+      void initBlob();
 
       void clearGrid();
 
@@ -117,10 +117,14 @@ protected:
 
       void integrate(int p);
 
-
       // helper functions
       int computeVoxelId(int voxelX, int voxelY, int voxelZ);
 
+      void updateBoundary(float* pos, float* vel);
+
+      /*
+      Old
+      
       void applyBoundary(
          vec3 position,
          float getTimeStep,
@@ -136,7 +140,7 @@ protected:
          float getTimeStep,
          vec3 *newPosition
       );
-
+      */
 
       void clearNeighbors();
       void memClear32(void *dst, int len);
