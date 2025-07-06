@@ -39,7 +39,7 @@ HD video of gas within a static NFW potential: https://youtu.be/Y3Q0ocbiiz8?si=h
 
 The GUI part of the code highly relies on Qt5. Particularly, check for `apt install qtbase5-dev qtbase5-dev-tools`.
 
-**If you still found troubles with the installation, try the auxiliary branch `new_CMakeQt`.**
+<!-- **If you still found troubles with the installation, try the auxiliary branch `new_CMakeQt`.** -->
 
 ### WIP:
 

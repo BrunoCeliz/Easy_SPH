@@ -860,7 +860,9 @@ void SPH::computeAcceleration(int particleIndex, uint32_t* neighbors, float* nei
 
       centerPart = (mH - distanceToNeighborScaled);
       centerPart *= centerPart;
-      centerPart *= mj * piDivRhoi2 * (pj * rhojInv2);
+      //centerPart *= mj * piDivRhoi2 * (pj * rhojInv2);
+      // Sup que esto no es lo de las equations?
+      centerPart *= mj * (piDivRhoi2 + (pj * rhojInv2));
 
       // add pressure gradient contribution to pressure gradient
       pressureGradient[0] += pressureGradientContribution[0] * centerPart;
