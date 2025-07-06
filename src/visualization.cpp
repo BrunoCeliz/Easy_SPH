@@ -89,7 +89,7 @@ void Visualization::drawBox(float maxX, float maxY, float maxZ)
    // draw boundaries
    glBegin(GL_LINES);
 
-   glColor4f(1.0f, 1.0f, 1.0f, 0.2f);
+   glColor4f(1.0f, 1.0f, 1.0f, 0.1f);
 
    // back
    glVertex3f(a.x, a.y, a.z);
@@ -147,13 +147,13 @@ void Visualization::drawParticles()
    glBegin(GL_POINTS);
 
    // Color by density?
-   glColor4f(0.5f, 0.5f, 0.5f, 0.5f);
+   glColor4f(0.5f, 0.5f, 0.5f, 0.2f);
 
    for (int i = 0; i < count; i++)
    {
-      const float& pos_x = particles->mPosition[i * 3];
-      const float& pos_y = particles->mPosition[i * 3 + 1];
-      const float& pos_z = particles->mPosition[i * 3 + 2];
+      const float& pos_x = particles->mPosition_x[i];
+      const float& pos_y = particles->mPosition_y[i];
+      const float& pos_z = particles->mPosition_z[i];
       glVertex3f(pos_x, pos_y, pos_z);
    }
 
@@ -348,18 +348,10 @@ void Visualization::paintGL()
       0.0f, 10.0f
    );
 
-   /*
    gluLookAt(
-      0.0f, 0.0f, -0.5f,
-      0.5f, 0.5f, 1.0f,
-      0.0f, 1.0f, 0.0f
-   );
-   */
-   // V2:
-   gluLookAt(
-      0.0f, 0.0f, -0.75f,
-      0.5f, 1.0f, 0.5f,
-      0.0f, 1.0f, 0.0f
+      0.0f, -0.1f, -0.75f,
+      0.5f, 1.25f, 1.0f,
+      0.0f, 0.2f, 1.0f
    );
 
    // setup modelview

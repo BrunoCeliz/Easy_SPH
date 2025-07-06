@@ -64,7 +64,7 @@ Q_OBJECT
 public slots:
 
       void run();
-      void step(int this_step);
+      void step();
 
       void pauseResume();
       void stopSimulation();
@@ -101,24 +101,21 @@ protected:
          uint32_t* neighbors,
          int voxelX,
          int voxelY,
-         int voxelZ,
-         float* distances
+         int voxelZ
       );
 
       // physics
-      void computeDensity(int p, uint32_t* neighbors, float* distances);
-      float computePressure(float rho);
-      void computeAcceleration(int p, uint32_t* neighbors, float* distances);
-      // New:
-      void computeFeedback(int p, uint32_t* neighbors, float* distances);
-      // New para central grav:
-      float computeEnclosedMassNFW(float dist);
-      void addCentralAccel(float* pos, float* accel);
-
+      //void computeDensity(int p, uint32_t* neighbors, float* distances);  // No more dist
+      void computeDensity(int p, uint32_t* neighbors);
+      void computePressure(int p);
+      void computeAcceleration(int p, uint32_t* neighbors);
       void integrate(int p);
 
 
       // helper functions
+
+      int evaluateNeighbor(int current, int neighbor);
+
       int computeVoxelId(int voxelX, int voxelY, int voxelZ);
 
       void applyBoundary(
@@ -165,19 +162,21 @@ protected:
 
       float mH;
       float mH2;
-      float mH6;
-      float mH9;
+      float mHScaled;
+      float mHScaled2;
+      float mHScaled6;
+      float mHScaled9;
       float mHTimes2;
       float mHTimes2Inv;
 
       QList<uint32_t>* mGrid;
       uint32_t* mNeighbors;
-      float* mNeighborDistancesScaled;
+      //float* mNeighborDistancesScaled;
 
       int totalSteps;
-      //float mKineticEnergyTotal;
-      //float mPotentialEnergyTotal;
-      //vec3 mAngularMomentumTotal;
+      float mKineticEnergyTotal;
+      float mPotentialEnergyTotal;
+      vec3 mAngularMomentumTotal;
 
       // timers
       int timeVoxelize;
@@ -190,6 +189,8 @@ protected:
       // physics
       float mRho0;
       float mStiffness;
+      float mSimulationScale;
+      float mSimulationScaleInverse;
       vec3 mGravity;
       float mKernel1Scaled;
       float mKernel2Scaled;
@@ -199,23 +200,16 @@ protected:
       float mDamping;
       float mCflLimit;
       float mCflLimit2;
+      
       // Gravity constant:
       float mGravConstant;
+      
       // Central mass (and pos):
       float mCentralMass;
-      //vec3 mCentralPos;
       float mCentralPos[3];
+      
       // Softening (force)
       float mSoftening;
-
-      // NEW: EoS
-      float mA_fluid;
-      float mGamma_minus;
-      float mInvGamma_minus;
-
-      // Feedback
-      float mRho_thresh;
-      float mKickVel;
 
       // thread handling
       mutable QMutex mMutex;
