@@ -258,17 +258,24 @@ __device__ float3 bodyBodyInteraction(float4 bi, float4 bj, float3 ai)
 // Evaluating Interactions in a pxp Tile:
 __device__ float3 tile_calculation(float4 myPosition, float3 accel)
 {
-  int i;
-  extern __shared__ float4 shPosition[];  // Could be static instead of dynamic... (N/p * sizeof(float4))
+	int i;
+	extern __shared__ float4 shPosition[];  // Could be static instead of dynamic... (N/p * sizeof(float4))
 
-  // potential loop unrolling! Race-condition in the update of the accel?
-  for (i = 0; i < blockDim.x; i+=4) {
-    accel = bodyBodyInteraction(myPosition, shPosition[i], accel);
+	/*
+	// potential loop unrolling! Race-condition in the update of the accel?
+	for (i = 0; i < blockDim.x; i+=4) {
+	accel = bodyBodyInteraction(myPosition, shPosition[i], accel);
 	accel = bodyBodyInteraction(myPosition, shPosition[i+1], accel);
 	accel = bodyBodyInteraction(myPosition, shPosition[i+2], accel);
 	accel = bodyBodyInteraction(myPosition, shPosition[i+3], accel);
-  }
-  return accel;
+	}
+	*/
+
+	for (i = 0; i < blockDim.x; i++)
+	{
+		accel = bodyBodyInteraction(myPosition, shPosition[i], accel);
+	}
+	return accel;
 }
 
 
@@ -287,6 +294,9 @@ __global__ void calculateNbody(void *devX, void *devA)
 	int i, tile;
 	float3 acc = {0.0f, 0.0f, 0.0f};
 	int gtid = blockIdx.x * blockDim.x + threadIdx.x;
+	
+	//if (gtid >= cant_particles) return;  // Think a checker
+
 	myPosition = globalX[gtid];
 	for (i = 0, tile = 0; i < cant_particles; i += blockDim.x, tile++) {
 		int idx = tile * blockDim.x + threadIdx.x;
@@ -296,9 +306,8 @@ __global__ void calculateNbody(void *devX, void *devA)
 		__syncthreads();
 	}
 	// Save the result in global memory for the integration step.
-	float4 acc4 = {acc.x, acc.y, acc.z, 0.0f};
 	// OJO, es un +=, porque ya les calcule lo hydro antes!
-	// globalA[gtid] += acc4;  // "+=" no existe, asi que lo hagamos coord a coord:
+	// "+=" no existe, asi que lo hagamos coord a coord:
 	globalA[gtid].x += acc.x;
 	globalA[gtid].y += acc.y;
 	globalA[gtid].z += acc.z;
