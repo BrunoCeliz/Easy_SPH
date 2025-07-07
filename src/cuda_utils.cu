@@ -288,7 +288,7 @@ __global__ void calculateNbody(void *devX, void *devA)
 	float3 acc = {0.0f, 0.0f, 0.0f};
 	int gtid = blockIdx.x * blockDim.x + threadIdx.x;
 	myPosition = globalX[gtid];
-	for (i = 0, tile = 0; i < N; i += p, tile++) {
+	for (i = 0, tile = 0; i < h_cant_particles; i += p, tile++) {
 		int idx = tile * blockDim.x + threadIdx.x;
 		shPosition[threadIdx.x] = globalX[idx];
 		__syncthreads();
@@ -298,7 +298,10 @@ __global__ void calculateNbody(void *devX, void *devA)
 	// Save the result in global memory for the integration step.
 	float4 acc4 = {acc.x, acc.y, acc.z, 0.0f};
 	// OJO, es un +=, porque ya les calcule lo hydro antes!
-	globalA[gtid] += acc4;
+	// globalA[gtid] += acc4;  // "+=" no existe, asi que lo hagamos coord a coord:
+	globalA[gtid].x += acc.x;
+	globalA[gtid].y += acc.y;
+	globalA[gtid].z += acc.z;
 }
 
 // Defining a Grid of Thread Blocks:
