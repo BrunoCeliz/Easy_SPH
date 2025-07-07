@@ -285,22 +285,35 @@ __device__ float3 tile_calculation(float4 myPosition, float3 accel)
 // The CUDA Kernel Executed by a Thread Block with p Threads to Compute the
 // Gravitational Acceleration for p Bodies as a Result of All N Interactions:
 
-__global__ void calculateNbody(void *devX, void *devA)
+__global__ void calculateNbody(float4* devX, float4* devA)
 {
 	extern __shared__ float4 shPosition[];
-	float4* globalX = (float4*)devX;
-	float4* globalA = (float4*)devA;
+	float4* globalX = devX;
+	float4* globalA = devA;
 	float4 myPosition;
-	int i, tile;
+	//int i, tile;
 	float3 acc = {0.0f, 0.0f, 0.0f};
 	int gtid = blockIdx.x * blockDim.x + threadIdx.x;
-	
-	//if (gtid >= cant_particles) return;  // Think a checker
+	if (gtid >= cant_particles) return;
 
 	myPosition = globalX[gtid];
-	for (i = 0, tile = 0; i < cant_particles; i += blockDim.x, tile++) {
-		int idx = tile * blockDim.x + threadIdx.x;
-		shPosition[threadIdx.x] = globalX[idx];
+	//for (i = 0, tile = 0; i < cant_particles; i += blockDim.x, tile++)
+	for (int tile = 0; tile < (cant_particles + blockDim.x - 1) / blockDim.x; ++tile)
+	{
+		// Calculate the global index for loading into shared memory for this thread
+        int globalReadIdx = tile * blockDim.x + threadIdx.x;
+		// Each thread loads one particle from global memory into its shared memory slot.
+        // If the globalReadIdx is out of bounds, load dummy data (mass 0)
+        if (globalReadIdx < cant_particles)
+		{
+            shPosition[threadIdx.x] = globalX[globalReadIdx];
+        } else
+		{
+            // Fill with dummy data (mass 0) to prevent out-of-bounds access
+            shPosition[threadIdx.x] = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+        }
+		
+		if (idx >= cant_particles) continue;
 		__syncthreads();
 		acc = tile_calculation(myPosition, acc);
 		__syncthreads();
@@ -644,8 +657,10 @@ void launchMyKernel(DeviceData* devData, float* h_position_x, float* h_position_
     CUDA_CHECK(cudaDeviceSynchronize());
 
 	// NEW ------------------------
-	// Paso 4.5: N-Body (If)
-	calculateNbody<<<blocksPerGrid, threadsPerBlock>>>(devData->d_pos, devData->d_accel);
+	// Paso 4.5: N-Body (If); Check for dynamic allocation...
+	size_t sharedMemSize = threadsPerBlock * sizeof(float4);
+
+	calculateNbody<<<blocksPerGrid, threadsPerBlock,sharedMemSize>>>(devData->d_pos, devData->d_accel);
 	CUDA_CHECK(cudaDeviceSynchronize());
 	// ----------------------------
 
