@@ -288,7 +288,7 @@ __global__ void calculateNbody(void *devX, void *devA)
 	float3 acc = {0.0f, 0.0f, 0.0f};
 	int gtid = blockIdx.x * blockDim.x + threadIdx.x;
 	myPosition = globalX[gtid];
-	for (i = 0, tile = 0; i < h_cant_particles; i += p, tile++) {
+	for (i = 0, tile = 0; i < cant_particles; i += blockDim.x, tile++) {
 		int idx = tile * blockDim.x + threadIdx.x;
 		shPosition[threadIdx.x] = globalX[idx];
 		__syncthreads();
