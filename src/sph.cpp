@@ -30,7 +30,7 @@
 #include "cuda_utils.h" // Include the header for CUDA wrapper functions
 
 #ifndef M
-#define M 16
+#define M 64
 #endif
 #define K 8
 
@@ -70,7 +70,7 @@ SPH::SPH()
    mMaxZ = mCellSize * mGridCellsZ;
 
    float time_simu = 1.0f;  // [Myr]
-   mTimeStep = 1e-4f;
+   mTimeStep = 1e-5f;
    totalSteps = (int)round(time_simu/mTimeStep);
 
    // physics
@@ -408,15 +408,15 @@ void SPH::initParticlePolitionsSphere()
       mSrcParticles->mPosition_z[i] = z;
 
       phi = atan2(z - mMaxZ * 0.5f, x - mMaxX * 0.5f);  // Acomodar por el centro de la esfera!
-      v_x_inic = 20.0f * pow(dist + mHScaled*0.5, -0.5) * -sin(phi);  // a = 20.0
-      v_z_inic = 20.0f * pow(dist + mHScaled*0.5, -0.5) * cos(phi);  // a = 20.0
+      v_x_inic = 0.0f * pow(dist + mHScaled*0.5, -0.5) * -sin(phi);  // a = 20.0
+      v_z_inic = 0.0f * pow(dist + mHScaled*0.5, -0.5) * cos(phi);  // a = 20.0
       // Some random movements on "y" (z)
       // Change it a little:
       if (phi > 0 && phi < 3.14) {
-         v_y_inic = ((rand() / (float)RAND_MAX) * 6.5f);
+         v_y_inic = ((rand() / (float)RAND_MAX) * 0.5f);
       }
       else {
-         v_y_inic = -((rand() / (float)RAND_MAX) * 6.5f);
+         v_y_inic = -((rand() / (float)RAND_MAX) * 0.5f);  // 6.5f
       };
       
 

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(sph)
+project(sph LANGUAGES CXX CUDA) # Declare both CXX and CUDA languages
+
+# Find CUDA toolkit (optional, but good practice)
+find_package(CUDA REQUIRED)
 
 # -------------------------------------
 # Selección del compilador
@@ -55,7 +58,7 @@ endif()
 # CUDA Configuration
 # -------------------------------------
 # Find CUDA toolkit
-# find_package(CUDA REQUIRED) -> already done it on "LANGUAGE"...
+# find_package(CUDA REQUIRED) #-> already done it on "LANGUAGE"...
 
 # Set CUDA standard (e.g., C++11, C++14, C++17). This helps nvcc compile host code with the specified C++ standard.
 set(CUDA_PROPAGATE_HOST_FLAGS OFF) # This prevents host compiler flags from being automatically propagated to nvcc.
@@ -113,3 +116,4 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${MOC_SOURCES} ${UI_HEADERS} ${CUDA_SO
 
 target_include_directories(${PROJECT_NAME} PRIVATE src ${CMAKE_BINARY_DIR} ${CUDA_INCLUDE_DIRS}) # Add CUDA include directories
 target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Gui Qt5::OpenGL Qt5::Widgets ${OPENGL_LIBS} ${CUDA_LIBRARIES}) # Link CUDA libraries
+

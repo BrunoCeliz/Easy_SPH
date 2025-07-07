@@ -232,7 +232,7 @@ __device__ float3 bodyBodyInteraction(float4 bi, float4 bj, float3 ai)
 
 	// Here can be added a condition that, if d < h => calculate hydro...
 
-	float s = bj.w * invDistCube;
+	float s = bj.w * invDistCube * grav_cte;
 	ai.x += r.x * s;
 	ai.y += r.y * s;
 	ai.z += r.z * s;
@@ -313,7 +313,6 @@ __global__ void calculateNbody(float4* devX, float4* devA)
             shPosition[threadIdx.x] = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
         }
 		
-		if (idx >= cant_particles) continue;
 		__syncthreads();
 		acc = tile_calculation(myPosition, acc);
 		__syncthreads();
