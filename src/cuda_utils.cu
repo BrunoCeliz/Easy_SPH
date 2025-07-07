@@ -107,7 +107,6 @@ DeviceData* initDeviceData(float* h_position_x, float* h_position_y, float* h_po
     CUDA_CHECK(cudaMemcpyToSymbol(side_grid, &h_side_grid, sizeof(int), 0, cudaMemcpyHostToDevice));
 
 
-
     size_t s_size = sizeof(float) * h_cant_particles;
     size_t i_size = sizeof(int) * h_cant_particles;
 	
@@ -121,6 +120,7 @@ DeviceData* initDeviceData(float* h_position_x, float* h_position_y, float* h_po
 	    h_accel[i] = make_float4(h_acceleration_x[i], h_acceleration_y[i], h_acceleration_z[i], 0.0f);
 	}
 
+
 	CUDA_CHECK(cudaMalloc(&(devData->d_pos), sizeof(float4) * h_cant_particles));
 	CUDA_CHECK(cudaMalloc(&(devData->d_vel), sizeof(float4) * h_cant_particles));
 	CUDA_CHECK(cudaMalloc(&(devData->d_accel), sizeof(float4) * h_cant_particles));
@@ -129,12 +129,10 @@ DeviceData* initDeviceData(float* h_position_x, float* h_position_y, float* h_po
 	CUDA_CHECK(cudaMemcpy(devData->d_vel, h_vel.data(), sizeof(float4) * h_cant_particles, cudaMemcpyHostToDevice));
 	CUDA_CHECK(cudaMemcpy(devData->d_accel, h_accel.data(), sizeof(float4) * h_cant_particles, cudaMemcpyHostToDevice));
 
-
     CUDA_CHECK(cudaMalloc(&(devData->d_mass), s_size));
     CUDA_CHECK(cudaMalloc(&(devData->d_density), s_size));
     CUDA_CHECK(cudaMalloc(&(devData->global_index), i_size));
 	CUDA_CHECK(cudaMalloc(&(devData->d_particle_ids), i_size));
-	
 
     CUDA_CHECK(cudaMemcpy(devData->d_mass, h_mass, s_size, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(devData->d_density, h_density, s_size, cudaMemcpyHostToDevice));
@@ -228,7 +226,7 @@ __device__ float3 bodyBodyInteraction(float4 bi, float4 bj, float3 ai)
 	r.y = bj.y - bi.y;
 	r.z = bj.z - bi.z;
 	
-	float distSqr = r.x * r.x + r.y * r.y + r.z * r.z + EPS2;  // [6 FLOPS]
+	float distSqr = r.x * r.x + r.y * r.y + r.z * r.z + softening;  // [6 FLOPS]
 	float distSixth = distSqr * distSqr * distSqr;
 	float invDistCube = 1.0f/sqrtf(distSixth);  // = 1/distSqr^(3/2)
 
@@ -261,7 +259,7 @@ __device__ float3 bodyBodyInteraction(float4 bi, float4 bj, float3 ai)
 __device__ float3 tile_calculation(float4 myPosition, float3 accel)
 {
   int i;
-  extern __shared__ float4[] shPosition;  // Could be static instead of dynamic... (N/p * sizeof(float4))
+  extern __shared__ float4 shPosition[];  // Could be static instead of dynamic... (N/p * sizeof(float4))
 
   // potential loop unrolling! Race-condition in the update of the accel?
   for (i = 0; i < blockDim.x; i+=4) {
@@ -282,7 +280,7 @@ __device__ float3 tile_calculation(float4 myPosition, float3 accel)
 
 __global__ void calculateNbody(void *devX, void *devA)
 {
-	extern __shared__ float4[] shPosition;
+	extern __shared__ float4 shPosition[];
 	float4* globalX = (float4*)devX;
 	float4* globalA = (float4*)devA;
 	float4 myPosition;
