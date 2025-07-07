@@ -216,6 +216,99 @@ void prepare_sorted_particles(const DeviceData* devData, int h_cant_particles, i
 }
 
 
+// --------------------------------------------------- N-body funcs --------------------------------------------------------
+// Updating Acceleration of One Body as a Result of
+// Its Interaction with Another Body: -------------------------------
+
+__device__ float3 bodyBodyInteraction(float4 bi, float4 bj, float3 ai)
+{
+	float3 r;
+	// r_ij  [3 FLOPS]
+	r.x = bj.x - bi.x;
+	r.y = bj.y - bi.y;
+	r.z = bj.z - bi.z;
+	
+	float distSqr = r.x * r.x + r.y * r.y + r.z * r.z + EPS2;  // [6 FLOPS]
+	float distSixth = distSqr * distSqr * distSqr;
+	float invDistCube = 1.0f/sqrtf(distSixth);  // = 1/distSqr^(3/2)
+
+	// Here can be added a condition that, if d < h => calculate hydro...
+
+	float s = bj.w * invDistCube;
+	ai.x += r.x * s;
+	ai.y += r.y * s;
+	ai.z += r.z * s;
+
+	return ai;
+}
+
+// Using float4 (instead of float3) data allows coalesced memory access to the arrays
+// of data in device memory, resulting in efficient memory requests and transfers.
+// (See the CUDA Programming Guide (NVIDIA 2007) for details on coalescing memory requests.)
+// Three-dimensional vectors stored in local variables are stored as float3 variables,
+// because register space is an issue and coalesced access is not.
+
+
+// Tile Calculation: -------------------------------
+// A tile is evaluated by p threads performing the same sequence of operations on
+// different data. Each thread updates the acceleration of one body as a result of its
+// interaction with p other bodies. We load p body descriptions from the GPU device
+// memory into the shared memory provided to each thread block in the CUDA model.
+// Each thread in the block evaluates p successive interactions. The result of the
+// tile calculation is p updated accelerations.
+
+// Evaluating Interactions in a pxp Tile:
+__device__ float3 tile_calculation(float4 myPosition, float3 accel)
+{
+  int i;
+  extern __shared__ float4[] shPosition;  // Could be static instead of dynamic... (N/p * sizeof(float4))
+
+  // potential loop unrolling! Race-condition in the update of the accel?
+  for (i = 0; i < blockDim.x; i+=4) {
+    accel = bodyBodyInteraction(myPosition, shPosition[i], accel);
+	accel = bodyBodyInteraction(myPosition, shPosition[i+1], accel);
+	accel = bodyBodyInteraction(myPosition, shPosition[i+2], accel);
+	accel = bodyBodyInteraction(myPosition, shPosition[i+3], accel);
+  }
+  return accel;
+}
+
+
+// Clustering Tiles into Thread Blocks: -------------------------------
+// The parameters to the function calculate_forces() are pointers to global
+// device memory for the positions devX and the accelerations devA of the bodies.
+// The CUDA Kernel Executed by a Thread Block with p Threads to Compute the
+// Gravitational Acceleration for p Bodies as a Result of All N Interactions:
+
+__global__ void calculateNbody(void *devX, void *devA)
+{
+	extern __shared__ float4[] shPosition;
+	float4* globalX = (float4*)devX;
+	float4* globalA = (float4*)devA;
+	float4 myPosition;
+	int i, tile;
+	float3 acc = {0.0f, 0.0f, 0.0f};
+	int gtid = blockIdx.x * blockDim.x + threadIdx.x;
+	myPosition = globalX[gtid];
+	for (i = 0, tile = 0; i < N; i += p, tile++) {
+		int idx = tile * blockDim.x + threadIdx.x;
+		shPosition[threadIdx.x] = globalX[idx];
+		__syncthreads();
+		acc = tile_calculation(myPosition, acc);
+		__syncthreads();
+	}
+	// Save the result in global memory for the integration step.
+	float4 acc4 = {acc.x, acc.y, acc.z, 0.0f};
+	// OJO, es un +=, porque ya les calcule lo hydro antes!
+	globalA[gtid] += acc4;
+}
+
+// Defining a Grid of Thread Blocks:
+// We invoke this program on a grid of thread blocks to compute the acceleration
+// of all N bodies. Because there are p threads per block and one thread per body,
+// the number of thread blocks needed to complete all N bodies is N/p,
+// so we define a 1D grid of size N/p.
+
 
 // --------------------------------------------------- KERNELS --------------------------------------------------------
 
@@ -252,7 +345,7 @@ __global__ void voxelize_CUDA(float4* pos, int num_cells, int* global_index)
 }
 
 
-// Neigh + densities using the voxelization:
+// Neigh + densities using the voxelization:Performance Results
 __global__ void neighbors_voxel_CUDA(float4* pos, float* mass, float* density,
                                      int* global_index, int* d_particle_ids,
                                      int* d_sorted_cell_ids, int* d_cell_start, int step)
@@ -317,7 +410,7 @@ __global__ void hydro_voxel_CUDA(float4* pos, float4* vel, float4* accel,
     float4 vel_i = __ldg(&vel[tid]);
     float rhoi = __ldg(&density[tid]);
     float pi = (rhoi - mRho0) * mStiffness;
-    float rhoiInv = (pi > 0.0f) ? (1.0f / pi) : 1.0f;
+    float rhoiInv = (rhoi > 0.0f) ? (1.0f / rhoi) : 1.0f;
     float rhoiInv2 = rhoiInv * rhoiInv;
     float piDivRhoi2 = pi * rhoiInv2;
 
@@ -361,7 +454,7 @@ __global__ void hydro_voxel_CUDA(float4* pos, float4* vel, float4* accel,
 
         // Gradiente de presión
         float w = (h_krnl - dist);
-        float factor = w * w * mj * piDivRhoi2 * pj * rhojInv2 * mKernel2Scaled * invDist;
+        float factor = w * w * mj * (piDivRhoi2 + pj * rhojInv2) * mKernel2Scaled * invDist;
 
         pressureGradX += dx * factor;
         pressureGradY += dy * factor;
@@ -386,6 +479,8 @@ __global__ void hydro_voxel_CUDA(float4* pos, float4* vel, float4* accel,
 
 
 // Lastly: grav + integration (!)
+
+/*
 __global__ void integrate_CUDA(float4* pos, float4* vel, float4* accel)
 {
 	// 1st, la 1ra parte grav que me falto desp de la hydro; desp integrate
@@ -475,6 +570,40 @@ __global__ void integrate_CUDA(float4* pos, float4* vel, float4* accel)
 
 	// Y ya modifiqué todos los vectores!
 }
+*/
+
+// NEW: que use la accel ya calc para la integ:
+// Lastly: grav + integration (!)
+__global__ void integrate_CUDA(float4* pos, float4* vel, float4* accel)
+{
+	// 1st, la 1ra parte grav que me falto desp de la hydro; desp integrate
+
+	// Thread ID
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	// Checker
+	if (tid >= cant_particles) return;
+	
+	// ---------------------------------------------
+	// Integro con LF-KDK -> Next kernel...	
+	// ---------------------------------------------
+		
+	// Only gravity (reset accel para el mid-step!)
+	vel[tid].x += accel[tid].x * delta_step * 0.5f;
+	vel[tid].y += accel[tid].y * delta_step * 0.5f;
+	vel[tid].z += accel[tid].z * delta_step * 0.5f;
+
+	pos[tid].x += vel[tid].x * delta_step;
+	pos[tid].y += vel[tid].y * delta_step;
+	pos[tid].z += vel[tid].z * delta_step;
+
+	// No calc de nuevo la accel...
+	// Integro todo! LF-KDK: Only gravity
+	vel[tid].x += accel[tid].x * delta_step;
+	vel[tid].y += accel[tid].y * delta_step;
+	vel[tid].z += accel[tid].z * delta_step;
+
+	// Y ya modifiqué todos los vectores!
+}
 
 //-------------------------------------- FUNCIÓN PRINCIPAL Y DESTRUCTURA -------------------------------------
 // Host-side wrapper function
@@ -504,12 +633,17 @@ void launchMyKernel(DeviceData* devData, float* h_position_x, float* h_position_
 												 devData->d_mass, devData->d_density, devData->global_index, devData->sorted_data.raw_particle_ids(), thrust::raw_pointer_cast(devData->sorted_data.d_sorted_cell_ids.data()), thrust::raw_pointer_cast(devData->sorted_data.d_cell_start.data()), countStemp);
     CUDA_CHECK(cudaDeviceSynchronize());
 
+	// NEW ------------------------
+	// Paso 4.5: N-Body (If)
+	calculateNbody<<<blocksPerGrid, threadsPerBlock>>>(devData->d_pos, devData->d_accel);
+	CUDA_CHECK(cudaDeviceSynchronize());
+	// ----------------------------
+
     // Paso 5: integración
     integrate_CUDA<<<blocksPerGrid, threadsPerBlock>>>(devData->d_pos, devData->d_vel, devData->d_accel);
     CUDA_CHECK(cudaDeviceSynchronize());
 
     // Paso 6: copiar al host
-
 	if (countStemp % 2 == 0) {
 		float4* h_pos = (float4*)malloc(sizeof(float4) * h_cant_particles);
 		cudaMemcpy(h_pos, devData->d_pos, sizeof(float4) * h_cant_particles, cudaMemcpyDeviceToHost);
@@ -539,7 +673,101 @@ void cleanupDeviceData(DeviceData* devData)
 }
 
 
+/*
+New: Try implementation of N-body force-calculation
+(as a separate function using blocking techniques, we'll see how it goes)
 
+IDEALMENTE, quiero que el blocking sobre estos N/p bloques de p threads (N-bodies)
+se haga tal que no ahorramos la búsqueda de vecinos! Si la distancia es pequeña,
+contalo como vecino (recall que ya estan sorteados, pero no más de 32 c/ part) y
+proseguí a la parte hydro...
+
+// Copio y pego del "GPU Gems 3.1 N-body all pairs":
+// (https://developer.nvidia.com/gpugems/gpugems3/part-v-physics-simulation/chapter-31-fast-n-body-simulation-cuda)
+*/
+
+
+/*
+// According to Gemini:
+
+#define TILE_SIZE 256 // Example: threads per block and shared memory tile size
+
+__global__ void calculateForcesBlocked(float4* pos, float4* acc, int numBodies, float dt, float softeningSq)
+{
+    // Global index of the particle whose force is being calculated by this thread
+    int globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Shared memory for positions of particles in the current tile
+    // Dynamically allocated shared memory: size is blockDim.x * sizeof(float4)
+    extern __shared__ float4 s_pos[TILE_SIZE];  // Better static...
+
+    float3 myPos;
+    float myMass;
+
+    if (globalIdx < numBodies) {
+        myPos = make_float3(pos[globalIdx].x, pos[globalIdx].y, pos[globalIdx].z);
+        myMass = pos[globalIdx].w;
+    }
+
+    float3 totalForce = make_float3(0.0f, 0.0f, 0.0f);
+
+    // Loop over N/p "tiles" of particles that will exert force
+    // Each iteration loads a new tile of 'p' particles into shared memory (each per thread)
+    for (int tile = 0; tile < (numBodies + TILE_SIZE - 1) / TILE_SIZE; ++tile) {
+        // Load a block of particles into shared memory
+        // Each thread loads one particle from global memory into shared memory
+        int sharedMemIdx = tile * TILE_SIZE + threadIdx.x;
+        if (sharedMemIdx < numBodies) {
+            s_pos[threadIdx.x] = pos[sharedMemIdx];
+        } else {
+            // If the last tile is not full, fill with dummy data or handle carefully
+            // A common strategy is to replicate the last valid particle, or ensure
+            // that threads operating on invalid shared memory indices don't contribute
+            // to calculations. For force calculations, setting mass to 0 is common.
+            s_pos[threadIdx.x] = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+        }
+        __syncthreads(); // Synchronize to ensure all shared memory data is loaded
+
+        // Now, each thread (globalIdx) calculates forces from the particles in shared memory
+        // This loop iterates over the 'p' particles currently in shared memory
+        for (int j = 0; j < TILE_SIZE; ++j) {
+            // Avoid self-interaction (if globalIdx is one of the particles in the current tile)
+            // Also, handle the case where the shared memory element might be dummy data
+            if (s_pos[j].w == 0.0f) continue; // Skip dummy particles if mass is zero
+
+            // Check if the particle we are calculating force ON is the same as the particle IN shared memory
+            if (globalIdx == (tile * TILE_SIZE + j)) continue;
+
+            float3 otherPos = make_float3(s_pos[j].x, s_pos[j].y, s_pos[j].z);
+            float otherMass = s_pos[j].w;
+
+            float3 r_ij = make_float3(otherPos.x - myPos.x,
+                                      otherPos.y - myPos.y,
+                                      otherPos.z - myPos.z);
+
+            float distSq = r_ij.x * r_ij.x + r_ij.y * r_ij.y + r_ij.z * r_ij.z + softeningSq;
+            float invDistCube = rsqrtf(distSq * distSq * distSq);
+
+            float s = otherMass * invDistCube;
+
+            totalForce.x += s * r_ij.x;
+            totalForce.y += s * r_ij.y;
+            totalForce.z += s * r_ij.z;
+        }
+
+        __syncthreads();
+		// Synchronize before loading the next tile (optional, but good practice if shared memory is reused)
+		// This __syncthreads() is often not strictly necessary if you're writing to the same shared memory locations
+		// in the next iteration of the outer loop, as the writes from the new tile load will overwrite the old.
+		// However, if there are any lingering reads that could cause issues, it's safer.
+    }
+
+    if (globalIdx < numBodies) {
+        acc[globalIdx] = make_float4(totalForce.x / myMass, totalForce.y / myMass, totalForce.z / myMass, 0.0f);
+    }
+}
+
+*/
 
 
 
